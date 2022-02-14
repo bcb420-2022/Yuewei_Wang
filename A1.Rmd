@@ -1,0 +1,428 @@
+---
+title: "BCB420-Assignment 1"
+output: html_document
+---
+### Select an Expression Data Set:
+<br>
+**1. Install the `GEOmetadb` Bioconductor package and load the library:**
+```{r message=FALSE, results=FALSE}
+if (!require("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+
+if (!requireNamespace("GEOmetadb", quietly = TRUE)){
+  BiocManager::install("GEOmetadb")
+}
+
+library(GEOmetadb)
+```
+
+**2. Pull the data and SQL query the more recent results of _GATA3_ for _human_ in _high-throughput_ technology associated _supplementary files_:**
+```{r message=FALSE, results=FALSE}
+if(!file.exists('GEOmetadb.sqlite')) getSQLiteFile()
+file.info('GEOmetadb.sqlite')
+
+con <- dbConnect(SQLite(), 'GEOmetadb.sqlite')
+sql <- paste("SELECT DISTINCT gse.title,gse.gse, gpl.title,",
+             " gse.submission_date, gse.supplementary_file ",
+             "FROM",
+             "  gse JOIN gse_gpl ON gse_gpl.gse=gse.gse",
+             "  JOIN gpl ON gse_gpl.gpl=gpl.gpl",
+             "WHERE",
+             "  gse.submission_date > '2015-01-01' AND",
+             "  gse.title LIKE '%GATA3%' AND ",
+             "  gpl.organism LIKE '%Homo sapiens%' AND",
+             "  gpl.technology LIKE '%high-throughput seq%' "
+             ,sep=" ")
+results <- dbGetQuery(con, sql)
+```
+
+**3. Narrow down the query into _txt_ file with _"count"_:**
+```{r}
+unlist(lapply(results$supplementary_file, 
+              function(x){
+                x <- unlist(strsplit(x, ";"));
+                x <- x[grep(x, pattern = "txt", ignore.case = TRUE)];
+                tail(unlist(strsplit(x, "/")), n = 1 )
+              }))
+
+refined_results <- results$supplementary_file[grep(results$supplementary_file,
+                                                   pattern = "count",
+                                                   ignore.case = TRUE)]
+dbDisconnect(con)
+```
+
+**4. Retrieved results:**
+
+  - selected dataset = [GSE85995](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE85995)
+  - title of paper: Function and hormonal regulation of GATA3 in human first trimester placentation. PMCID:[PMC5178150](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5178150/)
+
+---
+
+### Clean the data and map to HUGO symbols:
+<br>
+**1. Download the supplementary file and preview:**
+```{r}
+sfiles = getGEOSuppFiles('GSE85995')
+fnames = rownames(sfiles)
+data = read.delim(fnames[1], header = TRUE, check.names = FALSE)
+dim(data) # 27791     7
+head(data)
+```
+   - _Short interpretation_:
+     - 27791 rows with 7 columns (row identifier + 6 samples).
+     - There are **27791** genes with **6** samples
+     - Two different characteristics were tested: **C** represents the control, HTR8/SVneo cells transferred with scrambled siRNA. **G** represents the testing condition, HTR8/SVneo cells transferred with GATA3 siRNA.
+     - **3** replicates were performed in the assay (i.e. C1, C2, C3, G1, G2, G3).
+<br>
+
+**2. Overview assessment for duplicate rows:**
+
+  - Firstly, fix the missing column name to facilitate the commands latter:
+```{r}
+names(data)[1] <- 'gene_id'
+```
+  - Download and load `knitr` CRAN package to generate report of checking results:
+```{r message=FALSE, results='hide'}
+if (!require("knitr", quietly = TRUE))
+  install.packages("knitr")
+library(knitr)
+```
+  - Check if any duplicate rows exist:
+```{r}
+summarized_gene_counts <- sort(table(data$gene_id),decreasing = TRUE)
+kable(summarized_gene_counts[which(summarized_gene_counts > 1)[1:3]], format = 'html')
+```
+  - _Short interpretation_:
+  
+    - no duplicate row identifier
+<br>
+
+**3. Filtering out low counts:**
+
+  - Load `edgeR` Bioconductor package to check counts of at least 1 read per million in n of the samples.
+```{r message=FALSE, results='hide'}
+if (! requireNamespace("edgeR", quietly = TRUE)) {
+    BiocManager::install("edgeR")
+}
+library(edgeR)
+```
+  - In the assay, n = 3 since there are 3 replications.
+```{r}
+cpms <- edgeR::cpm(data[,2:7])
+rownames(cpms) <- data[, 1]
+keep = rowSums(cpms > 1) >= 3
+gata3_exp_filtered = data[keep, ]
+dim(data) # 27791 7
+dim(gata3_exp_filtered) # 12825 7
+
+head(gata3_exp_filtered)
+```
+
+  - _Short interpretation_:
+  
+    - As the comparison of the `data` (original dataset) and `gata3_exp_filtered` (filtered dataset), the number of genes were reduced from 27791 into **12825** by filtering out low counts. 
+    - For example, _ENSG00000000005.5_TNMD_ (no.2) was present in the original data, but removed after the filtering process.
+<br>
+
+**4. Map to HUGO gene symbols:**
+
+  - As shown in the `head(gata3_exp_filtered)` results previously, each row identifier is basically a combination of Ensembl ID, version and gene symbol (i.e. _ENSG00000000003.14_TSPAN6_ is Ensembl ID = _ENSG00000000003_, version = _14_, gene symbol = _'TSPAN6'_) [Reference 1].
+     
+  + In the HGNC Marts, the "Approved symbol" is the official gene symbol [Reference 2]. 
+
+  + For massively verify the mapping of gene symbols, download and load `biomaRt` Bioconductor package to map identifiers [Reference 4]:
+```{r message=FALSE, results='hide'}
+if (!requireNamespace("biomaRt", quietly = TRUE)){
+  BiocManager::install("biomaRt")
+}
+library(biomaRt)
+```
+  
+  + Separate out the Ensembl ID part and HGNC symbol part from each row identifier. Query biomart to check the mapping:
+```{r}
+# Separate Ensembl ID part and HGNC symbol part from original identifiers, add additional columns for mapping later
+ensembl_ids <- c()
+hgnc_symbols <- c()
+for (i in 1:nrow(gata3_exp_filtered)){
+  ensembl_ids <- c(ensembl_ids, strsplit(gata3_exp_filtered$gene_id[i], '[.]')[[1]][1])
+  hgnc_symbols <- c(hgnc_symbols, strsplit(gata3_exp_filtered$gene_id[i], '[_]')[[1]][2])
+}
+gata3_exp_filtered <- cbind(gene_id = gata3_exp_filtered[,1], 
+                            ensembl_ids, 
+                            hgnc_symbols, 
+                            gata3_exp_filtered[,2:7])
+
+length(unique(ensembl_ids)) # 12825
+length(unique(hgnc_symbols)) # 12796, duplicates for hgnc symbols may present
+
+# Set up human gene mart and query 'hgnc_symbol' according to Ensembl ID
+hsapiens <- biomaRt::useMart("ENSEMBL_MART_ENSEMBL",dataset = "hsapiens_gene_ensembl")
+bm <- biomaRt::getBM(attributes = c("ensembl_gene_id", "hgnc_symbol"),
+                     filters = 'ensembl_gene_id',
+                     values = ensembl_ids,
+                     mart = hsapiens)
+nrow(bm) # 12762, some IDs were unfounded
+
+# Select out the rows that could found Ensembl ID
+not_found_ensembl <- setdiff(gata3_exp_filtered$ensembl_ids, bm$ensembl_gene_id) 
+not_found_ensembl_index <- which(gata3_exp_filtered$ensembl_ids %in% not_found_ensembl)
+length(not_found_ensembl) # 63 (= 12825 - 12762) rows have unfounded ensembl ids
+
+# From biomart query, select out rows have hgnc_symbol results
+not_found_hgnc_indexs <- which(bm$hgnc_symbol == "")
+length(not_found_hgnc_indexs) # 299 of 12762 don't have HGNC symbols from the query results
+not_found_hgnc_indexs_in_gata_filtered_index <- which (gata3_exp_filtered$ensembl_ids 
+                                                       %in% bm$ensembl_gene_id[not_found_hgnc_indexs])
+
+bm_filtered <- bm[-not_found_hgnc_indexs,]
+nrow(bm_filtered) # 12463 (= 12762 - 299) have queried HGNC symbols for mapping
+
+# Map the remained 12463 rows for HGNC symbol part:
+gata3_exp_mapped <- gata3_exp_filtered[-union(not_found_ensembl_index, 
+                                              not_found_hgnc_indexs_in_gata_filtered_index),]
+
+not_matched_hgnc_index <- which(gata3_exp_mapped$hgnc_symbols != bm_filtered$hgnc_symbol)
+length(not_matched_hgnc_index) # 748 out of 12463 rows have unmapped HGNC part
+for (i in 1:length(not_matched_hgnc_index)){
+  gata3_exp_mapped$hgnc_symbols[not_matched_hgnc_index[i]]<-bm_filtered$hgnc_symbol[not_matched_hgnc_index[i]]
+}
+length(unique(gata3_exp_mapped$hgnc_symbols)) # 12463, all mapped hgnc symbols are unique
+```
+
+  + Preview the mapping results:
+```{r}
+before <-gata3_exp_filtered[-not_found_ensembl_index,]
+before <- before[-not_found_hgnc_indexs,]
+after_hgnc <- gata3_exp_mapped$hgnc_symbols[not_matched_hgnc_index][1:3]
+after_ensembl <- gata3_exp_mapped$ensembl_ids[not_matched_hgnc_index][1:3]
+
+before_hgnc <- before$hgnc_symbols[not_matched_hgnc_index][1:3]
+before_ensembl <- before$ensembl_ids[not_matched_hgnc_index][1:3]
+
+preview <- cbind(before_ensembl, before_hgnc,after_ensembl,after_hgnc)
+kable(preview, format = 'html')  
+```
+  - _Short interpretation_:
+  
+    - **748** rows were updated into the latest HGNC gene symbols in `gata3_exp_mapped$hgnc_symbols`.
+    - **12463** rows were mapped in total. 
+    - We found that **63** rows have invalid Ensembl IDs during this process. Since the original identifiers contains the HGNC symbol part, it is necessary to check then decide whether to clean them. 
+    - Similarly, **299** rows have valid Ensembl IDs but empty HGNC symbol, these rows are necessary to check as well.
+<br>
+
+**5. Clean:**
+
+  - As shown in **Overview assessment** section, the original identifiers duplicates and low count rows were filtered out and cleaned up.
+  
+  - As shown in the **Mapping** process, the decision to clean up or not needs to be made for the rows in `not_found_ensembl_index` (63 in total) and in `not_found_hgnc_indexs` (299 in total).
+  - Firstly, handle the rows in `not_found_ensembl_index`:
+```{r}
+not_found_ensembl_hgnc <- gata3_exp_filtered$hgnc_symbols[not_found_ensembl_index]
+length(unique(not_found_ensembl_hgnc)) # 63 unique hgnc symbols
+
+bm2 <- biomaRt::getBM(attributes = c("ensembl_gene_id", "hgnc_symbol"),
+                     filters = 'hgnc_symbol',
+                     values = not_found_ensembl_hgnc,
+                     mart = hsapiens)
+length(unique(bm2$hgnc_symbol)) #22 unique query results
+
+# Only keep those 22 rows since others out of 63 failed on both ensembl and hgnc queries.
+candidates <- which(gata3_exp_filtered$hgnc_symbols %in% 
+                      (intersect(gata3_exp_filtered$hgnc_symbols, bm2$hgnc_symbol)))
+keep_index <- intersect(not_found_ensembl_index, candidates)
+remove_index <- setdiff(not_found_ensembl_index, keep_index)
+
+# Make sure the removed has no overlap with the mapped data
+intersect(gata3_exp_filtered[remove_index,], gata3_exp_mapped[remove_index,]) # data frame with 0 columns and 0 rows
+gata3_exp_filtered <- gata3_exp_filtered[-remove_index, ]
+dim(gata3_exp_filtered) # 12784 (= 12825 - (63 - 22)) rows 9 (7 + 2 self_added) columns
+```
+  - Then, handle the rows in `not_found_hgnc_indexs`:
+```{r}
+not_found_hgnc <- bm$ensembl_gene_id[not_found_hgnc_indexs]
+new_not_found_hgnc_index <- which(gata3_exp_filtered$ensembl_ids %in% not_found_hgnc)
+bm3 <- biomaRt::getBM(attributes = c("ensembl_gene_id", "hgnc_symbol"),
+                      filters = 'hgnc_symbol',
+                      values = gata3_exp_filtered$hgnc_symbols[new_not_found_hgnc_index],
+                      mart = hsapiens)
+length(unique(bm3$hgnc_symbol)) # 17 unique hgnc symbols could be found
+
+# Only keep those 17 rows since others out of 299 failed on both ensembl and hgnc queries.
+candidates <- which(gata3_exp_filtered$hgnc_symbols %in% 
+                      (intersect(gata3_exp_filtered$hgnc_symbols, bm3$hgnc_symbol)))
+keep_index <- intersect(new_not_found_hgnc_index, candidates)
+remove_index <- setdiff(new_not_found_hgnc_index, keep_index)
+
+# Make sure the removed has no overlap with the mapped data
+intersect(gata3_exp_filtered[remove_index,], gata3_exp_mapped[remove_index,]) # data frame with 0 columns and 0 rows
+gata3_exp_filtered <- gata3_exp_filtered[-remove_index, ]
+dim(gata3_exp_filtered) # 12502 (= 12784 - (299 - 17)) rows 9 (7 + 2 self_added) columns
+```
+  - Combine `gata3_exp_mapped` with `gata3_exp_filtered`:
+```{r}
+dim(gata3_exp_mapped) # 12463     9
+dim(gata3_exp_filtered) # 12502     9
+
+# Row number difference is expected, since `gata3_exp_mapped` only contained mapped 12463 rows
+# Append the over-filtered rows back into `gata3_exp_mapped` 
+over_filtered <- setdiff(gata3_exp_filtered$ensembl_ids, gata3_exp_mapped$ensembl_ids)
+index <- which(gata3_exp_filtered$ensembl_ids %in% over_filtered)
+over_filtered_index <- which(gata3_exp_mapped$hgnc_symbols %in% gata3_exp_filtered$hgnc_symbols[index])
+gata3_exp_mapped <- rbind(gata3_exp_mapped, gata3_exp_filtered[over_filtered_index,])
+
+# Avoid duplicated rows after the over_filtered insertion
+summarized_gene_counts <- sort(table(gata3_exp_mapped$hgnc_symbols),decreasing = TRUE)
+kable(summarized_gene_counts[which(summarized_gene_counts > 1)[1:3]], format = 'html')
+
+candidates <- as.data.frame(summarized_gene_counts[which(summarized_gene_counts > 1)])
+candidates_index<- which(gata3_exp_mapped$hgnc_symbols %in% candidates[,1])
+gata3_exp_mapped <- gata3_exp_mapped[-which(duplicated(gata3_exp_mapped)),]
+
+length(gata3_exp_mapped$hgnc_symbols) # 12464
+length(unique(gata3_exp_mapped$hgnc_symbols)) # 12464
+
+# Keep HGNC symbol column for further steps.
+gata3_exp_mapped$ensembl_ids <- NULL
+gata3_cleaned_maped_data <- gata3_exp_mapped
+dim(data) # 27791     7
+dim(gata3_cleaned_maped_data) # 12464     8
+```
+  - _Short interpretation_:
+  
+    - **15327** (= 27791 - 12464) rows were cleaned 
+    - **12464** rows were kept and mapped, which is the final coverage 
+    - The mapped HGNC symbols was attached into the cleaned and mapped data `gata3_cleaned_maped_data` as column `hgnc_symbols`. Thus, the final coverage has **8** columns.
+<br>
+
+---
+
+### Apply Normalization:
+
+**1. Pre-normalization plot:** 
+```{r}
+data2plot <- log2(cpm(gata3_cleaned_maped_data[,3:8]))
+
+# density plot
+counts_density <- apply(data2plot, 2, density)
+
+# calculate limits for all samples
+xlim <- 0; ylim <- 0
+for (i in 1:length(counts_density)) {
+  xlim <- range(c(xlim, counts_density[[i]]$x)); 
+  ylim <- range(c(ylim, counts_density[[i]]$y))
+}
+cols <- rainbow(length(counts_density))
+ltys <- rep(1, length(counts_density))
+
+#plot the first density plot to initialize the plot
+plot(counts_density[[1]], xlim=xlim, ylim=ylim, type="n", 
+     ylab="Smoothing density of log2-CPM", 
+     main = "GATA3 RNASeq Samples Pre-normalization Density Plot"
+     , cex.lab = 0.85)
+
+#plot each line
+for (i in 1:length(counts_density)) lines(counts_density[[i]], col=cols[i], lty=ltys[i])
+#legend
+legend("topright", colnames(data2plot),  
+       col=cols, lty=ltys, cex=0.75, 
+       border ="blue",  text.col = "green4", 
+       merge = TRUE, bg = "gray90")
+```
+  
+  - _Short interpretation_:
+  
+    - From the pre-normalization density plot, all data basically follows the normal distribution, but still exists variations at the peak and edge.
+   
+**2. Normalization by using TMM method:**
+```{r}
+filtered_data_matrix <- as.matrix(gata3_cleaned_maped_data[,3:8])
+rownames(filtered_data_matrix) <- gata3_cleaned_maped_data$hgnc_symbols
+group = c(rep("scrambled siRNA",3),rep("GATA3 siRNA",3))
+d = DGEList(counts=filtered_data_matrix, group = group)
+d = calcNormFactors(d)
+normalized_counts <- cpm(d)
+```
+
+**3. Post-normalization plot:**
+```{r}
+normalized_data2plot <- log2(normalized_counts)
+normalized_counts_density <- apply(normalized_data2plot, 2, density)
+
+# Repeat same procedures for normalized data
+xlim <- 0; ylim <- 0
+for (i in 1:length(normalized_counts_density)) {
+  xlim <- range(c(xlim, normalized_counts_density[[i]]$x)); 
+  ylim <- range(c(ylim, normalized_counts_density[[i]]$y))
+}
+cols <- rainbow(length(normalized_counts_density))
+ltys <- rep(1, length(normalized_counts_density))
+
+
+plot(normalized_counts_density[[1]], xlim=xlim, ylim=ylim, type="n", 
+     ylab="Smoothing density of log2-CPM", 
+     main = "GATA3 RNASeq Samples Post-normalization Density Plot"
+     , cex.lab = 0.85)
+
+
+for (i in 1:length(normalized_counts_density)) lines(normalized_counts_density[[i]], col=cols[i], lty=ltys[i])
+legend("topright", colnames(normalized_data2plot), 
+       col=cols, lty=ltys, cex=0.75, 
+       border ="blue",  text.col = "green4", 
+       merge = TRUE, bg = "gray90")
+```
+  
+  - _Short interpretation_:
+   
+    - The post-normalization plot remains the normal distribution as the pre-normalization plot.
+    - The edge of the data was slightly cleaned via the normalization.
+  
+<br>
+
+---
+
+### Interpret, and document:
+
++ What are the control and test conditions of the dataset?
+
+    - control: HTR8/SVneo cells transferred with scrambled siRNA
+    - testing: HTR8/SVneo cells transferred with GATA3 siRNA knockdown
+    
++ Why is the dataset of interest to you?
+
+    - GATA3 is a protein-coding gene that could regulate a wide range of biologically and clinically critical human genes. I have studied GATA3 in the area of allergic inflammation in immunology class. The study of this dataset investigated the effects of GATA3 regulation on the first-trimester placentation in the blastocyst stage in humans. It would be interesting to expand my understanding of the GATA3 function.
+    
++ Were there expression values that were not unique for specific genes? How did you handle these?
+
+    - All row identifiers have two parts (Ensembl IDs and HGNC symbols), both of which contribute to gene identification. However, as the mapping and cleaning process showed, not all rows have matched Ensembl IDs and HGNC symbols based on the queries of biomart data mining. Some rows have their Ensembl IDs that are still valid, but the HGNC symbols are not updated. However, there is another case where the HGNC symbols are valid, but the Ensembl IDs are not.
+    - For rows that have at least one valid identification pathway, I have kept them for currently, and these rows will probably be cleaned up further when needed. In the meantime, a new column has been added to all rows with the latest HGNC symbols from the biomart query. All newly added HGNC symbols are unique to each other, so it should be expected that the expression values are unique for now.
+    
++ Were there expression values that could not be mapped to current HUGO symbols?
+
+    - Yes, as shown in the mapping section, some row identifiers have their Ensembl IDs with empty query for HGNC gene symbols. `bm_filtered` demonstrated how to handle these rows from the raw data.
+    
++ How many outliers were removed?
+
+    - In terms of cleaning and mapping, 15327 out of 27791 were removed. These outliers include low counts, invalid identifiers (neither Ensembl ID nor HGNC symbol) and expression value duplicates.
+    
++ How did you handle replicates?
+
+    - There are 3 replications in the assay. The replication number was used as the number of samples for CPM according to edgeR protocol [Reference 3]. 
+    
++ What is the final coverage of your dataset?
+
+    - The final coverage is in `gata3_cleaned_maped_data` as shown at the end of the cleaning section. 12464 genes with 8 columns (original identifier, new added HGNC symbols, across 6 samples expression values).
+<br>
+
+---
+
+### Reference:
+
+1. HUGO Gene Nomenclature Committee. (2022). Symbol report for TSPAN6. Retrieved February 12, 2022 https://www.genenames.org/data/gene-symbol-report/#!/hgnc_id/HGNC:11858
+
+2. HUGO Gene Nomenclature Committee. (2022). BioMart help. Retrieved February 12, 2022. https://www.genenames.org/help/biomart/]
+
+3. Isserlin, R. (2021). Lecture 4: Exploring the data and basics of Normalization. BCB420 - Computational System Biology. Retrieved February 12, 2022.
+
+4. Durinck, S., Spellman, P., Birney, E.,& Huber, W. (2009). Mapping identifiers for the integration ofgenomic datasets with the R/Bioconductor package biomaRt. *Nature Protocols*, 4, 1184–1191.2.
+
+5. Isserlin, R. (2021). Lecture 3: Different Platforms for measuring Expression Datameasuring Expression Data. BCB420 - Computational System Biology. Retrieved February 07, 2022
