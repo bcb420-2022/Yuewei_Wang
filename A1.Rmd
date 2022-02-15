@@ -69,8 +69,8 @@ dim(data) # 27791     7
 head(data)
 ```
    - _Short interpretation_:
-     - 27791 rows with 7 columns (row identifier + 6 samples).
-     - There are **27791** genes with **6** samples
+     - 27791 rows with 7 columns (row identifier + 3 samples in 2 conditions).
+     - There are **27791** genes with **3** samples
      - Two different characteristics were tested: **C** represents the control, HTR8/SVneo cells transferred with scrambled siRNA. **G** represents the testing condition, HTR8/SVneo cells transferred with GATA3 siRNA.
      - **3** replicates were performed in the assay (i.e. C1, C2, C3, G1, G2, G3).
 <br>
@@ -290,8 +290,16 @@ dim(gata3_cleaned_maped_data) # 12464     8
   - _Short interpretation_:
   
     - **15327** (= 27791 - 12464) rows were cleaned 
-    - **12464** rows were kept and mapped, which is the final coverage 
+    - **12464** rows were kept and mapped, which is the final coverage
+    - Comparing to filtered data (12825 rows), **361** (= 12825 - 12464) rows were unmapped. The percentage is ~**2.8%** (= (12825 - 12464) / 12825)).
     - The mapped HGNC symbols was attached into the cleaned and mapped data `gata3_cleaned_maped_data` as column `hgnc_symbols`. Thus, the final coverage has **8** columns.
+    
+    
+  - Finialize the data with HUGO symbol as rownames:
+```{r}
+rownames(gata3_cleaned_maped_data) = gata3_cleaned_maped_data$hgnc_symbols
+```
+ 
 <br>
 
 ---
@@ -299,6 +307,8 @@ dim(gata3_cleaned_maped_data) # 12464     8
 ### Apply Normalization:
 
 **1. Pre-normalization plot:** 
+
+  - Density plot:
 ```{r}
 data2plot <- log2(cpm(gata3_cleaned_maped_data[,3:8]))
 
@@ -331,19 +341,21 @@ legend("topright", colnames(data2plot),
   
   - _Short interpretation_:
   
-    - From the pre-normalization density plot, all data basically follows the normal distribution, but still exists variations at the peak and edge.
+    - From the density plot, all data basically follows the normal distribution, but still exists variations at the peak and edge.
    
 **2. Normalization by using TMM method:**
 ```{r}
 filtered_data_matrix <- as.matrix(gata3_cleaned_maped_data[,3:8])
 rownames(filtered_data_matrix) <- gata3_cleaned_maped_data$hgnc_symbols
-group = c(rep("scrambled siRNA",3),rep("GATA3 siRNA",3))
+group = c("C1", "C2", "C3", "G1", "G2", "G3")
 d = DGEList(counts=filtered_data_matrix, group = group)
 d = calcNormFactors(d)
 normalized_counts <- cpm(d)
 ```
 
 **3. Post-normalization plot:**
+
+  - Density plot:
 ```{r}
 normalized_data2plot <- log2(normalized_counts)
 normalized_counts_density <- apply(normalized_data2plot, 2, density)
@@ -371,10 +383,32 @@ legend("topright", colnames(normalized_data2plot),
        merge = TRUE, bg = "gray90")
 ```
   
+  - MDS plot comparison:
+```{r}
+# set up conditions for grouping
+samples <- data.frame(lapply(colnames(gata3_cleaned_maped_data)[3:8], 
+                             FUN=function(x){unlist(strsplit(x, split = "-"))[c(1)]}))
+colnames(samples) <- colnames(gata3_cleaned_maped_data)[3:8]
+rownames(samples) <- c("condition")
+samples <- data.frame(t(samples))
+
+# before normalization
+plotMDS(filtered_data_matrix, labels=rownames(samples),
+        main = "GATA3 RNASeq Samples Pre-normalization MDS Plot",
+        col = c(rep("darkgreen",3),rep("blue", 3))[factor(samples$condition)])
+
+#after normalization
+plotMDS(d, labels=rownames(samples),
+        main = "GATA3 RNASeq Samples Post-normalization MDS Plot",
+        col = c(rep("darkgreen",3),rep("blue", 3))[factor(samples$condition)])
+```
+  
   - _Short interpretation_:
    
     - The post-normalization plot remains the normal distribution as the pre-normalization plot.
     - The edge of the data was slightly cleaned via the normalization.
+    
+    - The MDS post-normalization plot shows the distance between similar expression samples were reduced than the pre-normalization plot. The cluster became tighter as expected for the normalization. 
   
 <br>
 
@@ -398,7 +432,7 @@ legend("topright", colnames(normalized_data2plot),
     
 + Were there expression values that could not be mapped to current HUGO symbols?
 
-    - Yes, as shown in the mapping section, some row identifiers have their Ensembl IDs with empty query for HGNC gene symbols. `bm_filtered` demonstrated how to handle these rows from the raw data.
+    - Yes, as shown in the mapping section, ~2.8% of rows were unmapped since missing valid identifier in both Ensembl IDs and HGNC gene symbols. 
     
 + How many outliers were removed?
 
@@ -410,7 +444,7 @@ legend("topright", colnames(normalized_data2plot),
     
 + What is the final coverage of your dataset?
 
-    - The final coverage is in `gata3_cleaned_maped_data` as shown at the end of the cleaning section. 12464 genes with 8 columns (original identifier, new added HGNC symbols, across 6 samples expression values).
+    - The final coverage is in `gata3_cleaned_maped_data` as shown at the end of the cleaning section. 12464 genes with 8 columns (original identifier, new added HGNC symbols (rowname), across 3 samples expression values).
 <br>
 
 ---
@@ -426,3 +460,5 @@ legend("topright", colnames(normalized_data2plot),
 4. Durinck, S., Spellman, P., Birney, E.,& Huber, W. (2009). Mapping identifiers for the integration ofgenomic datasets with the R/Bioconductor package biomaRt. *Nature Protocols*, 4, 1184–1191.2.
 
 5. Isserlin, R. (2021). Lecture 3: Different Platforms for measuring Expression Datameasuring Expression Data. BCB420 - Computational System Biology. Retrieved February 07, 2022
+
+6. Isserlin, R. (2021). Lecture 5: Data exploration and Identifier mapping. BCB420 - Computational System Biology. Retrieved February 14, 2022.
