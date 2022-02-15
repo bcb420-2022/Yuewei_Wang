@@ -377,8 +377,8 @@ bm &lt;- biomaRt::getBM(attributes = c(&quot;ensembl_gene_id&quot;, &quot;hgnc_s
                      filters = &#39;ensembl_gene_id&#39;,
                      values = ensembl_ids,
                      mart = hsapiens)</code></pre>
-<pre><code>## Batch submitting query [=========&gt;---------------------] 33% eta: 6s Batch
-## submitting query [====================&gt;----------] 67% eta: 3s</code></pre>
+<pre><code>## Batch submitting query [=========&gt;---------------------] 33% eta: 2m Batch
+## submitting query [====================&gt;----------] 67% eta: 29s</code></pre>
 <pre class="r"><code>nrow(bm) # 12762, some IDs were unfounded</code></pre>
 <pre><code>## [1] 12762</code></pre>
 <pre class="r"><code># Select out the rows that could found Ensembl ID
@@ -733,6 +733,22 @@ plotMDS(d, labels=rownames(samples),
 <p><br></p>
 <hr />
 </div>
+<div id="final-coverage" class="section level3">
+<h3>Final coverage:</h3>
+<pre class="r"><code>gata3_cleaned_maped_annot &lt;- gata3_cleaned_maped_data[,3:8]
+rownames(gata3_cleaned_maped_annot) = gata3_cleaned_maped_data$hgnc_symbols
+colnames(gata3_cleaned_maped_annot) = samples[,1]
+dim(gata3_cleaned_maped_annot)</code></pre>
+<pre><code>## [1] 12464     6</code></pre>
+<pre class="r"><code>head(gata3_cleaned_maped_annot)</code></pre>
+<pre><code>##               C1      C2      C3      G1      G2      G3
+## TSPAN6    621.00  654.00  254.00  325.00  405.00  881.00
+## DPM1     2918.00 3669.00 1174.00 1596.00 2067.00 4728.00
+## SCYL3     335.13  385.34  131.26  189.54  230.86  535.55
+## C1orf112  712.23  837.53  303.74  357.51  473.29 1263.16
+## CFH      1031.19 1178.04  480.66  581.59  677.51 1611.55
+## FUCA2    3510.00 4054.00 1535.00 1831.00 2317.00 5345.00</code></pre>
+</div>
 <div id="interpret-and-document" class="section level3">
 <h3>Interpret, and document:</h3>
 <ul>
@@ -764,7 +780,7 @@ plotMDS(d, labels=rownames(samples),
 </ul></li>
 <li><p>What is the final coverage of your dataset?</p>
 <ul>
-<li>The final coverage is in <code>gata3_cleaned_maped_data</code> as shown at the end of the cleaning section. 12464 genes with 8 columns (original identifier, new added HGNC symbols (rowname), across 3 samples expression values). <br></li>
+<li>The final coverage is in <code>gata3_cleaned_maped_annot</code> as shown at the end of the cleaning section. 12464 genes with 6 columns. <br></li>
 </ul></li>
 </ul>
 <hr />

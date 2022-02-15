@@ -414,6 +414,15 @@ plotMDS(d, labels=rownames(samples),
 
 ---
 
+### Final coverage:
+```{r}
+gata3_cleaned_maped_annot <- gata3_cleaned_maped_data[,3:8]
+rownames(gata3_cleaned_maped_annot) = gata3_cleaned_maped_data$hgnc_symbols
+colnames(gata3_cleaned_maped_annot) = samples[,1]
+dim(gata3_cleaned_maped_annot)
+head(gata3_cleaned_maped_annot)
+```
+
 ### Interpret, and document:
 
 + What are the control and test conditions of the dataset?
@@ -444,7 +453,7 @@ plotMDS(d, labels=rownames(samples),
     
 + What is the final coverage of your dataset?
 
-    - The final coverage is in `gata3_cleaned_maped_data` as shown at the end of the cleaning section. 12464 genes with 8 columns (original identifier, new added HGNC symbols (rowname), across 3 samples expression values).
+    - The final coverage is in `gata3_cleaned_maped_annot` as shown at the end of the cleaning section. 12464 genes with 6 columns.
 <br>
 
 ---
