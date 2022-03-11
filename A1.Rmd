@@ -298,6 +298,9 @@ dim(gata3_cleaned_maped_data) # 12464     8
   - Finialize the data with HUGO symbol as rownames:
 ```{r}
 rownames(gata3_cleaned_maped_data) = gata3_cleaned_maped_data$hgnc_symbols
+if (!file.exists("gata3_cleaned_mapped_data.rds")) {
+  saveRDS(gata3_cleaned_maped_data, "gata3_cleaned_mapped_data.rds")
+}
 ```
  
 <br>
@@ -350,14 +353,14 @@ rownames(filtered_data_matrix) <- gata3_cleaned_maped_data$hgnc_symbols
 group = c("C1", "C2", "C3", "G1", "G2", "G3")
 d = DGEList(counts=filtered_data_matrix, group = group)
 d = calcNormFactors(d)
-normalized_counts <- cpm(d)
+normalized_cleaned_gata3 <- cpm(d)
 ```
 
 **3. Post-normalization plot:**
 
   - Density plot:
 ```{r}
-normalized_data2plot <- log2(normalized_counts)
+normalized_data2plot <- log2(normalized_cleaned_gata3)
 normalized_counts_density <- apply(normalized_data2plot, 2, density)
 
 # Repeat same procedures for normalized data
@@ -416,11 +419,11 @@ plotMDS(d, labels=rownames(samples),
 
 ### Final coverage:
 ```{r}
-gata3_cleaned_maped_annot <- gata3_cleaned_maped_data[,3:8]
-rownames(gata3_cleaned_maped_annot) = gata3_cleaned_maped_data$hgnc_symbols
-colnames(gata3_cleaned_maped_annot) = samples[,1]
-dim(gata3_cleaned_maped_annot)
-head(gata3_cleaned_maped_annot)
+dim(normalized_cleaned_gata3)
+head(normalized_cleaned_gata3)
+if (!file.exists("gata3_cleaned_normalized.rds")) {
+  saveRDS(normalized_cleaned_gata3, "gata3_cleaned_normalized.rds")
+}
 ```
 
 ### Interpret, and document:
