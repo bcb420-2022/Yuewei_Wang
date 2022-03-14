@@ -1,0 +1,638 @@
+---
+title: "BCB420-Assignment 2"
+date: '`r Sys.Date()`'
+author: "Yuewei Wang"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+bibliography: A2_YueweiWang.bib
+nocite: '@*'
+---
+
+# 1. Brief Introduction of Assignment 1 Results
+
+### Load the needed packages:
+```{r library_loading, message=FALSE, warning=FALSE, results='hide'}
+if (!require("BiocManager", quietly = TRUE))
+  install.packages("BiocManager")
+
+if (!requireNamespace("GEOmetadb", quietly = TRUE)){
+  BiocManager::install("GEOmetadb")
+}
+if (!require("knitr", quietly = TRUE))
+  install.packages("knitr")
+
+if (! requireNamespace("edgeR", quietly = TRUE)) {
+    BiocManager::install("edgeR")
+}
+
+library(GEOmetadb)
+library(knitr)
+library(edgeR)
+```
+
+### Loading the chosen dataset:
+
+* The choice of dataset is _GSE85995_, the data file was download by using GEOmetadb package method. 
+
+* In assignment 1, clean process was performed to remove **duplicated**, **non-informative** and **weakly express** data. Mapping process was performed by mappping row identifiers into the most updated HGNC symbols. The cleaned and mapped data was saved into _gata3_cleaned_mapped_data.rds_ file. More detail code algorithm was presented in _A1.Rmd_ file.
+```{r A1_summary_download, message=FALSE, warning=FALSE, results='hide'}
+sfiles = getGEOSuppFiles('GSE85995')
+
+# <clean and map, the detailed code are in "A1.Rmd"> ...
+
+if (!file.exists("gata3_cleaned_mapped_data.rds")) {
+  options(knitr.duplicate.label = 'allow')
+  source(purl("A1.Rmd", output = tempfile()))
+}
+gata3_cleaned_maped_data <- readRDS("gata3_cleaned_mapped_data.rds")
+```
+
+
+* **TMM** normalization was performed in assignment 1. 
+```{r A1_summary_norm, message=FALSE, warning=FALSE}
+filtered_data_matrix <- as.matrix(gata3_cleaned_maped_data[,3:ncol(gata3_cleaned_maped_data)])
+rownames(filtered_data_matrix) <- gata3_cleaned_maped_data$hgnc_symbols
+group = c(rep("scrambled siRNA",3),rep("GATA3 siRNA",3))
+d = DGEList(counts=filtered_data_matrix, group = group)
+d = calcNormFactors(d)
+normalized_cleaned_gata3 <- cpm(d)
+```
+
+
+* Density plots were compared for the cleaned and mapped data before and after normalization. The data before normalization followed a normal distribution. After normalization, the pattern remained and the edges of the data were cleaned up slightly.
+```{r A1_summary_plots, message=FALSE, warning=FALSE, out.width=c('50%', '50%'), fig.show='hold', fig.cap="Figure 1: GATA3 RNASeq Samples Density Plots Comparison by using TMM Normalization.", fig.align='center'}
+# before
+data2plot <- log2(cpm(gata3_cleaned_maped_data[,3:ncol(gata3_cleaned_maped_data)]))
+counts_density <- apply(data2plot, 2, density)
+xlim <- 0; ylim <- 0
+for (i in 1:length(counts_density)) {
+  xlim <- range(c(xlim, counts_density[[i]]$x)); 
+  ylim <- range(c(ylim, counts_density[[i]]$y))
+}
+cols <- rainbow(length(counts_density))
+ltys <- rep(1, length(counts_density))
+plot(counts_density[[1]], xlim=xlim, ylim=ylim, type="n", 
+     ylab="Smoothing density of log2-CPM", 
+     main = "Figure 1.1: Pre-normalization Density Plot",
+     cex.lab = 0.85)
+for (i in 1:length(counts_density)) lines(counts_density[[i]], col=cols[i], lty=ltys[i])
+legend("topright", colnames(data2plot),  
+       col=cols, lty=ltys, cex=0.75, 
+       border ="blue",  text.col = "green4", 
+       merge = TRUE, bg = "gray90")
+
+# after
+normalized_data2plot <- log2(normalized_cleaned_gata3)
+normalized_counts_density <- apply(normalized_data2plot, 2, density)
+xlim <- 0; ylim <- 0
+for (i in 1:length(normalized_counts_density)) {
+  xlim <- range(c(xlim, normalized_counts_density[[i]]$x)); 
+  ylim <- range(c(ylim, normalized_counts_density[[i]]$y))
+}
+cols <- rainbow(length(normalized_counts_density))
+ltys <- rep(1, length(normalized_counts_density))
+plot(normalized_counts_density[[1]], xlim=xlim, ylim=ylim, type="n",      
+     ylab="Smoothing density of log2-CPM", 
+     main = "Figure 1.2: Post-normalization Density Plot",
+     cex.lab = 0.85)
+for (i in 1:length(normalized_counts_density)) lines(normalized_counts_density[[i]], col=cols[i], lty=ltys[i])
+legend("topright", colnames(normalized_data2plot), 
+       col=cols, lty=ltys, cex=0.75, 
+       border ="blue",  text.col = "green4", 
+       merge = TRUE, bg = "gray90")
+```
+
+
+* The normalized data was saved into _gata3_cleaned_normalized.rds_ file.
+```{r A1_summary_save, message=FALSE, warning=FALSE, results='hide'}
+if (!file.exists("gata3_cleaned_normalized.rds")) {
+  saveRDS(normalized_cleaned_gata3, "gata3_cleaned_normalized.rds")
+}
+```
+
+---
+
+# 2. Load Data 
+
+### Load packages used in assignment 2:
+```{r A2_load_library, message=FALSE, warning=FALSE, results='hide'}
+if (!requireNamespace("ComplexHeatmap", quietly = TRUE)){
+  BiocManager::install("ComplexHeatmap")
+}
+if (!require("kableExtra", quietly = TRUE))
+  install.packages("kableExtra")
+library(ComplexHeatmap) 
+library(circlize)
+library(kableExtra)
+```
+
+### Load the saved data from assignment 1:
+
+* Load the saved data and construct the sample matrix for further differential gene expression process. The control condition was marked as *C* and the testing condition was marked as *G*.
+```{r data_loading, message=FALSE, warning=FALSE}
+if (!file.exists("gata3_cleaned_normalized.rds")) {
+  options(knitr.duplicate.label = 'allow')
+  source(purl("A1.Rmd", output = tempfile()))
+}
+gata3_data <- readRDS("gata3_cleaned_normalized.rds")
+gata3_samples<-data.frame(lapply(colnames(gata3_data), 
+                                 FUN=function(x){unlist(strsplit(x, split = "-")[[1]][1])}))
+gata3_samples<-data.frame(lapply(gata3_samples[1,], 
+                                 FUN=function(x){unlist(strsplit(x, split = ""))}))
+colnames(gata3_samples) <- data.frame(lapply(colnames(gata3_data), 
+                                 FUN=function(x){unlist(strsplit(x, split = "-")[[1]][1])}))
+rownames(gata3_samples) <- c("cell_type","sample_type")
+gata3_samples <- data.frame(t(gata3_samples))
+gata3_samples
+colnames(gata3_data) <- rownames(gata3_samples)
+head(gata3_data)
+```
+
+---
+
+# 3. Differential Gene Expression
+
+### Code inplementation: 
+
+* We will visualize the normalized data by applying them to a heat map initially. 
+```{r A2_heat_map, message=FALSE, warning=FALSE, fig.align='center', fig.dim=c(6,4)}
+# scale and center data
+heatmap_matrix <- t(scale(t(gata3_data)))
+
+if(min(heatmap_matrix) == 0){
+  heatmap_col = colorRamp2(c( 0, max(heatmap_matrix)),
+                           c( "white", "red"))
+} else {
+  heatmap_col = colorRamp2(c(min(heatmap_matrix), 0, max(heatmap_matrix)), 
+                           c("blue", "white", "red"))
+}
+current_heatmap <- Heatmap((heatmap_matrix),
+                           show_row_dend = TRUE,show_column_dend = TRUE,
+                           col=heatmap_col,show_column_names = TRUE,
+                           show_row_names = FALSE,show_heatmap_legend = TRUE, 
+                           column_title = "Samples", 
+                           row_title = "Genes",
+                           name = "normalized")
+current_heatmap
+```
+  
+* Revisit the MDS plot from Assignment 1 (regarding cell type difference), and introduce a new model for different sample type.
+```{r A2_MDS_plot, message=FALSE, warning=FALSE, out.width=c('50%', '50%'),fig.align='center',fig.show='hold', fig.cap="Figure 3: GATA3 RNASeq Samples MDS Plots Comparison by using Two Models"}
+# MDS plot, by cell type (in A1)
+plotMDS(heatmap_matrix, 
+        col = c("darkgreen", "blue")[factor(gata3_samples$cell_type)],
+        main = "Figure 3.1: Cell Type Model ")
+legend("topright", 
+       legend=c("C: scrambled siRNA", "G: GATA3 siRNA"),
+       fill = c("darkgreen", "blue"),
+       cex=0.7)
+
+# MDS plot by sample cluster
+pat_colors <- unlist(rainbow(3))[factor(gata3_samples$sample_type)]
+plotMDS(heatmap_matrix, 
+        col = pat_colors,
+        main = "Figure 3.2: Patient Model")
+legend("topright", 
+       legend=c("Sample 1", "Sample 2", "Sample3"),
+       fill = pat_colors,
+       cex=0.7)
+```
+
+     According to the MDS plots, the distance of clustering grouped by cell typle is more close to grouped by patients. 
+
+* Construct the models (**Simple model** and **Complex model**) and perform **Limma** analysis.
+```{r A2_build_models, message=FALSE, warning=FALSE, results='hide'}
+# cell type variation model
+cell_type_model <- model.matrix(~ gata3_samples$cell_type)
+kable(cell_type_model, type="html")
+expressionMatrix <- as.matrix(gata3_data)
+rownames(expressionMatrix) <- rownames(gata3_data)
+colnames(expressionMatrix) <- colnames(gata3_data)
+minimalSet <- ExpressionSet(assayData=expressionMatrix)
+fit <- lmFit(minimalSet, cell_type_model)
+fit2 <- eBayes(fit,trend=TRUE)
+topfit <- topTable(fit2,
+                   coef=ncol(cell_type_model),
+                   adjust.method = "BH",
+                   number = nrow(expressionMatrix))
+output_hits <- merge(rownames(gata3_data),
+                     topfit,
+                     by.y=0,by.x=1,
+                     all.y=TRUE)
+colnames(output_hits)[1] <- "hgnc_symbol"
+output_hits <- output_hits[order(output_hits$P.Value),]
+kable(output_hits[1:3,],type="html",row.names = FALSE)
+
+# patient + cell type model
+patient_model <- model.matrix(~ gata3_samples$sample_type + 
+                                gata3_samples$cell_type)
+kable(patient_model,type="html")
+fit_patient <- lmFit(minimalSet, patient_model)
+fit_patient2 <- eBayes(fit_patient,trend=TRUE)
+topfit_pat <- topTable(fit_patient2,
+                   coef=ncol(patient_model),
+                   adjust.method = "BH",
+                   number = nrow(expressionMatrix))
+output_sample_type_hits <- merge(rownames(gata3_data),
+                                 topfit_pat,
+                                 by.y=0,by.x=1,
+                                 all.y=TRUE)
+colnames(output_sample_type_hits)[1] <- "hgnc_symbol"
+output_sample_type_hits <- output_sample_type_hits[order(output_sample_type_hits$P.Value),]
+kable(output_sample_type_hits[1:3,],type="html",row.names = FALSE)
+```
+
+* Compare the differentially expressed genes (DEGs) selecting results from two models. Point the gene of interest for deciding the model used for later tasks.
+```{r A2_model_compare, message=FALSE, warning=FALSE, fig.align='center'}
+cell_model_pvalues <- data.frame(hgnc_symbol = output_hits$hgnc_symbol,
+                                 cell_pvalue=output_hits$P.Value)
+patient_model_pvalues <-  data.frame(hgnc_symbol = output_sample_type_hits$hgnc_symbol,
+                                    sample_pvalue = output_sample_type_hits$P.Value)
+two_models_pvalues <- merge(cell_model_pvalues,
+                            patient_model_pvalues,by.x=1,by.y=1)
+two_models_pvalues$colour <- "grey"
+#cell type model significant in orange
+two_models_pvalues$colour[two_models_pvalues$cell_pvalue<0.05] <- "orange"
+#sample type model significant in blue
+two_models_pvalues$colour[two_models_pvalues$sample_pvalue<0.05] <- "blue"
+#both models are significant in red
+two_models_pvalues$colour[two_models_pvalues$cell_pvalue<0.05 & 
+                            two_models_pvalues$sample_pvalue<0.05] <- "red"
+par(mar=c(5,5,5,6))
+plot(two_models_pvalues$cell_pvalue,
+     two_models_pvalues$sample_pvalue,
+     col = two_models_pvalues$colour,
+     xlab = "Simple model p-values",
+     ylab ="Patient model p-values",
+     main="Figure 4: Simple model vs Complex model Limma")
+points(two_models_pvalues[which(two_models_pvalues$hgnc_symbol == "GATA3"),2:3],
+       pch=24, col="purple", cex=1.5)
+legend("topright", inset=c(-0.25,0),bty = "n", xpd=TRUE,
+       legend=c("cell type model", "patient model", "both", "GATA3","not signif"),
+       fill = c("orange", "blue","red", "purple" ,"grey"),
+       cex=0.7)
+```
+
+     As shown in Figure 4, most genes were not significantly expressed (grey). For both models, the P-values for the selected DEGs are basically below 0.05, which is expected. The gene of interest (purple triangle), GATA3, has a p-value close to 0 in both models, which is also expected. 
+
+    Most of the DEGs from the simple model overlaps with the complex model as the red region exhibition. In addition, the complex model contains more DEGs than the simple model, as the blue region exhibition. Therefore, I prefer to use the complex model.
+
+* Perform **edgeR** analysis and Quasi likelihood test:
+```{r A2_edgeR1, warning=FALSE, message=FALSE}
+# by cell type model
+expressionMatrix <- as.matrix(gata3_data)
+d = DGEList(counts=expressionMatrix, group=gata3_samples$cell_type)
+d <- estimateDisp(d, patient_model)
+fit <- glmQLFit(d, patient_model)
+qlf.pos_vs_neg <- glmQLFTest(fit)
+qlf_output_hits <- topTags(qlf.pos_vs_neg,sort.by = "PValue",
+                           n = nrow(gata3_data))
+```
+
+* Compare edgeR versus Limma results:
+```{r A2_edgeR2, warning=FALSE, message=FALSE, fig.align='center'}
+par(mar=c(5,5,5,6))
+qlf_model_pvalues <- data.frame(hgnc_symbol = rownames(qlf_output_hits$table),
+                                     qlf_pvalue=qlf_output_hits$table$PValue)
+limma_model_pvalues <-  data.frame(hgnc_symbol = output_hits$hgnc_symbol,
+                                        limma_pvalue = output_hits$P.Value)
+two_models_pvalues <- merge(qlf_model_pvalues,
+                            limma_model_pvalues,
+                            by.x=1,by.y=1)
+two_models_pvalues$colour <- "grey"
+two_models_pvalues$colour[two_models_pvalues$qlf_pvalue<0.05] <- "orange"
+two_models_pvalues$colour[two_models_pvalues$limma_pvalue<0.05] <- "blue"
+two_models_pvalues$colour[two_models_pvalues$qlf_pvalue<0.05 &
+                            two_models_pvalues$limma_pvalue<0.05] <- "red"
+plot(two_models_pvalues$qlf_pvalue,
+     two_models_pvalues$limma_pvalue,
+     col = two_models_pvalues$colour,
+     xlab = "QLF p-values",
+     ylab ="Limma p-values",
+     main="Figure 5: QLF vs Limma with DEGs from the Complex Model of GATA3 RNASeq Samples",
+     cex.main = 0.85)
+
+points(two_models_pvalues[which(two_models_pvalues$hgnc_symbol == "GATA3"),2:3],
+       pch=24, col="purple", cex=1.5)
+legend("topright", inset=c(-0.25,0),bty = "n", xpd=TRUE,
+       legend=c("qlf only", "limma only", "both", 
+                "GATA3", "not signif"),
+       fill = c("orange", "blue","red", "purple", "grey"),
+       cex=0.7)
+```
+
+     For both methods, most genes remain non-significantly expressed (grey). A small number of genes were selected out in both analyses as the red region. The number of DEGs in the limma analysis is more than in the edgeR QLF analysis.
+    
+     In this study, the gene of interest (GATA3) is marked in the purple triangle located in the overlapped region. In addition, the limma method has a larger range of significantly expressed genes than the edgeR method.
+
+
+* MA plot or Volcano plot
+```{r A2_volcano_plot, message=FALSE, warning=FALSE, echo=FALSE, out.width=c('50%', '50%'), fig.show='hold', fig.cap="Figure 7: GATA3 RNASeq Samples Volcano Plots Comparison by using Two Methods", fig.align='center'}
+df_limma <- data.frame(logFC = output_sample_type_hits$logFC,
+                 neg_logpvalue = -log10(output_sample_type_hits$adj.P.Val),
+                 adj_p = output_sample_type_hits$adj.P.Val,
+                 color="grey")
+df_limma$color[which(df_limma$logFC > 0 & df_limma$adj_p < 0.05)] <- "green"
+df_limma$color[which(df_limma$logFC< 0 & df_limma$adj_p < 0.05)] <- "purple"
+plot(df_limma[,1:2], 
+     col=df_limma$color, 
+     main = "Figure 7.1:  Limma method")
+legend("topright", 
+       legend=c("up-regulated", "down-regulated", "neither"), 
+       fill = c("purple","green", "grey"),
+       cex = 0.7)
+
+df_edger <- data.frame(logFC = qlf_output_hits$table$logFC, 
+                 neg_logFDR = -log10(qlf_output_hits$table$FDR),
+                 FDR = qlf_output_hits$table$FDR,
+                 color="grey")
+df_edger$color[which(df_edger$logFC > 0 & df_edger$FDR < 0.05)] <- "green"
+df_edger$color[which(df_edger$logFC< 0 & df_edger$FDR < 0.05)] <- "purple"
+plot(df_edger[,1:2], 
+     col=df_edger$color, 
+     main = "Figure 7.2: edgeR method")
+legend("topright", 
+       legend=c("up-regulated", "down-regulated", "neither"), 
+       fill = c("purple","green", "grey"),
+       cex = 0.7)
+```
+
+        In the volcano plot, the results of both methods show the separation between up-regulated (green) and down-regulated (purple) genes, which can primarily demonstrate that the DEGs selected by both analyses are largely valid. Besides, the separation of edgeR is more obvious.
+
+
+* Construct the heat maps of top hits by using **Limma** method and **edgeR** method respectively:
+```{r A2_sample_heatmap, message=FALSE, warning=FALSE, echo=FALSE, fig.align='center',fig.cap="Figure 8: Normalized GATA3 RNASeq Samples Heat Maps by using Complex Model in Limma and edgeR", out.width=c('50%', '50%'), fig.show='hold'}
+sample_type_top_hits <- output_sample_type_hits$hgnc_symbol[output_sample_type_hits$P.Value<0.05]
+heatmap_matrix_sample_tophits <- t(
+  scale(t(gata3_data[which(rownames(gata3_data) %in% sample_type_top_hits),])))
+if(min(heatmap_matrix_sample_tophits) == 0){
+  heatmap_col = colorRamp2(c( 0, max(heatmap_matrix_sample_tophits)),
+                           c( "white", "red"))
+} else {
+  heatmap_col = colorRamp2(c(min(heatmap_matrix_sample_tophits), 0,
+                             max(heatmap_matrix_sample_tophits)), 
+                           c("blue", "white", "red"))
+}
+limma_model_heatmap <- Heatmap(as.matrix(heatmap_matrix_sample_tophits),
+                              cluster_rows = TRUE,
+                              cluster_columns = TRUE,
+                              show_row_dend = TRUE,
+                              show_column_dend = TRUE,
+                              col=heatmap_col,
+                              show_column_names = TRUE,
+                              show_row_names = FALSE,
+                              show_heatmap_legend = TRUE,
+                              column_title = "Samples (group by complex model)", 
+                              row_title = "Genes",
+                              name="limma")
+qlf_top_hits <- rownames(qlf_output_hits$table)[output_sample_type_hits$P.Value<0.05]
+heatmap_matrix_qlf <- t(scale(t(gata3_data[which(rownames(gata3_data) %in% 
+                                                   qlf_top_hits),])))
+if(min(heatmap_matrix_qlf) == 0){
+  heatmap_col = colorRamp2(c( 0, max(heatmap_matrix_qlf)),
+                           c( "white", "red"))
+} else {
+  heatmap_col = colorRamp2(c(min(heatmap_matrix_qlf), 0,
+                             max(heatmap_matrix_qlf)), 
+                           c("blue", "white", "red"))
+}
+edger_model_heatmap <- Heatmap(as.matrix(heatmap_matrix_qlf),
+                              cluster_rows = TRUE,
+                              cluster_columns = TRUE,
+                              show_row_dend = TRUE,
+                              show_column_dend = TRUE,
+                              col=heatmap_col,
+                              show_column_names = TRUE,
+                              show_row_names = FALSE,
+                              show_heatmap_legend = TRUE,
+                              column_title = "Samples (group by complex model)", 
+                              row_title = "Genes",
+                              name="edgeR")
+limma_model_heatmap
+edger_model_heatmap
+```
+
+ 
+### Short Summary of the Results:
+
+* **Calculate p-values for each of the genes in your expression set.** How many genes were significantly differentially expressed? What thresholds did you use and why?
+  
+  + The thresholds used was **0.05** since the value is typical and widely used in the statistical null-hypothesis significance testing. It demonstrates at 95% of probability we could reject the null hypothesis and the alternative hypothesis is true. It is also the same p-value used in the original paper.
+  
+  + For the chosen model in limma method, there were **`r length(which(output_sample_type_hits$P.Value < 0.05))`** DEGs with the threshold of 0.05. The percentage of those genes in all cleaned and mapped data was **`r round(length(which(output_sample_type_hits$P.Value < 0.05))/nrow(gata3_data), digits = 4)`**.
+
+  + For the chosen model in edgeR method, there were **`r length(which(qlf_output_hits$table$PValue < 0.05))`** DEGs with the threshold of 0.05. The percentage of those genes in all cleaned and mapped data was **`r round(length(which(qlf_output_hits$table$PValue < 0.05))/nrow(gata3_data), digits = 4)`**.
+    
+* **Multiple hypothesis testing - correct your p-values using a multiple hypothesis correction method.** Which method did you use? And Why? How many genes passed correction?
+
+  + I used **Benjamini-Hochberg** (BH) method in the p-value correction since it is more common method in multiple hypothesis testing. It could avoid the false positives in the statistical test.
+  
+  + From the chosen model in limma method, there were **`r length(which(output_sample_type_hits$adj.P.Val < 0.05))`** genes passed the correction. The percentage was **`r round(length(which(output_sample_type_hits$adj.P.Val < 0.05))/nrow(gata3_data), 4)`**.
+  
+  + From the chosen model in edgeR method, there were **`r length(which(qlf_output_hits$table$FDR < 0.05))`** genes passed the correction. The percentage was **`r round(length(which(qlf_output_hits$table$FDR < 0.05))/nrow(gata3_data), 4)`**.
+    
+* **Show the amount of differentially expressed genes using an MA Plot or a Volcano plot.** Highlight genes of interest.
+  + As _Figure **7**_ showed for both methods, the differential gene expression could be separated into up-regulation and down-regulation by logFC and p-value after correction. In both plots, the separation between up-regulated and down-regulated genes was apparent, but edgeR analysis has a more clear separation. 
+    
+* **Visualize your top hits using a heatmap.** Do you conditions cluster together? Explain why or why not.
+
+  + In both the limma method and edgeR method, there was obvious clustering between cell types (control scrambled siRNA and testing GATA3 siRNA). It provides the evidence that GATA3 might be a strong signal for multiple pathways.
+  
+  + In the top hits generated by using the limma method, the clusters are more evenly divided. But in the edgeR glmQLFTest, the clustering of down-regulated genes were more weighted in the testing group.
+  
+---
+
+# 4. Thresholded over-representation analysis
+
+### Construct Thresholded list:
+
+* Combining the performance of both edgeR QLF and limma methods above, they both could select the gene of interest in the paper as *Figure 5* shown. Also, the top hits heatmaps by using both methods could demonstrate a clear clustering across cell type grouping. 
+
+* I will choose **edgeR QLF** results for the later process since it is designed for RNA Seq. Also in *Figure 5*, the results have a smaller range of DEGs than the limma method, which may contribute to avoiding false positives in later tasks. Meanwhile, in *Figure 7.2*, the separation between up and down-regulated genes in the volcano plot is more clear than in Figure 7.1 (Limma method).
+
+```{r A2_gene_list, message=FALSE, warning=FALSE}
+qlf_output_hits_withgn <- merge(rownames(gata3_data),qlf_output_hits, by.x=1, by.y = 0)
+colnames(qlf_output_hits_withgn)[1] <- "hgnc_symbol"
+qlf_output_hits_withgn[,"rank"] <- -log(qlf_output_hits_withgn$PValue,base =10) * 
+                                        sign(qlf_output_hits_withgn$logFC)
+qlf_output_hits_withgn <- qlf_output_hits_withgn[order(qlf_output_hits_withgn$rank),]
+up_regulated <- qlf_output_hits_withgn$hgnc_symbol[which(qlf_output_hits_withgn$PValue < 0.05
+                                                   & qlf_output_hits_withgn$logFC > 0)]
+down_regulated <- qlf_output_hits_withgn$hgnc_symbol[which(qlf_output_hits_withgn$PValue < 0.05
+                                                     & qlf_output_hits_withgn$logFC < 0)]
+if(!file.exists("gata3_upregulated_genes.txt")){
+  write.table(x=up_regulated,
+            file=file.path("data","gata3_upregulated_genes.txt"),sep = "\t",
+            row.names = FALSE,col.names = FALSE,quote = FALSE)
+}
+
+if(!file.exists("gata3_downregulated_genes.txt")){
+  write.table(x=down_regulated,
+            file=file.path("data","gata3_downregulated_genes.txt"),sep = "\t",
+            row.names = FALSE,col.names = FALSE,quote = FALSE)
+}
+if(!file.exists("gata3_ranked_genelist.txt")){
+  write.table(x=data.frame(genename= qlf_output_hits_withgn$hgnc_symbol,
+                         F_stat=qlf_output_hits_withgn$rank),
+            file=file.path("data","gata3_ranked_genelist.txt"),sep = "\t",
+            row.names = FALSE,col.names = FALSE,quote = FALSE)
+}
+```
+
+
+### Short Summary of the Results:
+
+#### 1. Which method did you choose and why?
+
+* I used the edgeR QLF results. The reason for choosing edgeR QLF is explained in the above section. 
+<br>
+
+
+
+#### 2. What annotation data did you use and why? What version of the annotation are you using?
+
+* I used **g:profiler** since I had practiced in the homework assignment 2. Also, there are many retrieved information available in g:profiler, which could provide a multiple-resources analysis. The version of annotation I used were *GO biological process*, *Reactome* and *WikiPathways*.
+<br>
+
+
+
+#### 3. How many genesets were returned with what thresholds?
+
+* In up_regulated gene list, there were `r length(up_regulated)` genes.
+
+* In down_regulated gene list, there were `r length(down_regulated)` genes.
+
+* The thresholds was **0.05** for p-value, and Significance threshold used in g:profiler was **Benjamini–Hochberg FDR**.
+<br>
+
+
+
+#### 4. Run the analysis using the up-regulated set of genes, and the down-regulated set of genes separately. How do these results compare to using the whole list (i.e all differentially expressed genes together vs. the up-regulated and down regulated differentially expressed genes separately)?
+
+* In up_regulated genes list query results:
+```{r go_profiler_up, results='asis', echo=FALSE}
+data_resource = c("Go: BP", "REAC", "WP")
+top_terms = c("organelle organization", 
+              "Cell Cycle", 
+              "Retinoblastoma gene in cancer")
+t = c(3805,678,88)
+q = c(834,566,466)
+t_intersect_q = c(317, 91, 32)
+df_up = data.frame(data_resource, top_terms, t, q, t_intersect_q)
+colnames(df_up) = c("Resource", "Top Term", "$T$", "$Q$", "$T \\cap Q$")
+kable(df_up, format = 'html',  escape=FALSE,align=c(rep('c',times=5)))%>%
+  kable_styling(full_width = F)
+```
+<br>
+
+* In down_regulated genes list query results:
+```{r go_profiler_down, results='asis', echo=FALSE}
+data_resource = c("Go: BP", "REAC", "WP")
+top_terms = c("ribosome biogenesis", 
+              "rRNA processing in the nucleus and cytosol", 
+              "Metabolic reprogramming in colon cancer")
+t = c(302,192,44)
+q = c(527,399,341)
+t_intersect_q = c(52, 40, 16)
+df_down = data.frame(data_resource, top_terms, t, q, t_intersect_q)
+colnames(df_down) = c("Resource", "Top Term", "$T$", "$Q$", "$T \\cap Q$")
+kable(df_down, format = 'html',  escape=FALSE,align=c(rep('c',times=5)))%>%
+  kable_styling(full_width = F)
+```
+<br>
+
+* In all differentially expressed genes list query results:
+```{r go_profiler_all, results='asis', echo=FALSE}
+data_resource = c("Go: BP", "REAC", "WP")
+top_terms = c("organelle organization", 
+              "Cell Cycle", 
+              "Retinoblastoma gene in cancer")
+t = c(3805,678,88)
+q = c(1361,965,787)
+t_intersect_q = c(480, 115, 36)
+df_all = data.frame(data_resource, top_terms, t, q, t_intersect_q)
+colnames(df_all) = c("Resource", "Top Term", "$T$", "$Q$", "$T \\cap Q$")
+kable(df_all, format = 'html',  escape=FALSE,align=c(rep('c',times=5)))%>%
+  kable_styling(full_width = F)
+```
+<br>
+
+      The up_regulated genes list results have different top terms as the list of the down_regulated genes in all three data resources. 
+
+      The whole list results are more close to the up_regulated results in all top terms. `r df_all[1,5]-df_up[1,5]` of down_regulated genes were up-regulated in the whole list in GO biological pathway. `r df_all[2,5]-df_up[2,5]` of down_regulated genes were up-regulated in the whole list in Reactome. Also, only `r df_all[3,5]-df_up[3,5]` of down_regulated genes were up-regulated in the whole list in Wiki pathways.
+
+---
+
+# 5. Interpretation
+
+#### 1. Do the over-representation results support conclusions or mechanism discussed in the original paper?
+
+* We will first check if the over-representation results conform to the conclusion:
+```{r compare_to_ori, warning=FALSE, message=FALSE}
+# load original DEGs lists
+up<- as.vector(read.table(file = "./data/original_up_regulated.txt")$V1)
+down<- as.vector(read.table(file = "./data/original_down_regulated.txt")$V1)
+
+# paper conclusion for up regulated genes
+length(up[which(up %in% up_regulated)])
+up[which(up %in% up_regulated)]
+
+# paper conclusion for down regulated genes
+length(down[which(down %in% down_regulated)])
+down[which(down %in% down_regulated)]
+```
+
+* In the original paper, the results indicated that `r length(up)` genes are up-regulated genes and `r length(down)` are down-regulated genes. 
+
+* There were `r round(length(up[which(up %in% up_regulated)])/length(up),4)*100`% of concluded up-regulated genes correctly selected from the over-representation results. `r round(length(down[which(down %in% down_regulated)])/length(down),4)*100` % of concluded down-regulated genes correctly selected. 
+
+* Then, we will navigate to those genes missing in the results. If any of them were incorrectly classified into differentially expressed gene group.
+```{r compare_to_ori2, warning=FALSE, message=FALSE}
+# ori-up-regulated missed
+unfound_up = up[which(!(up %in% up_regulated))]
+which(unfound_up %in% down_regulated)
+
+# ori-down-regulated missed
+unfound_down = down[which(!(down %in% down_regulated))]
+which(unfound_down %in% up_regulated)
+```
+
+* There were `r length(unfound_up)` of genes marked as up-regulated genes in the original paper's result, but not in the queried results. And `r length(unfound_down)` of genes were the down-regulated genes mentioned in the original paper but the results were missed. There were no miss classified genes.
+<br>
+
+
+
+#### 2. Can you find evidence, i.e. publications, to support some of the results that you see. How does this evidence support your results.
+
+* GATA3 plays an important role in regulating gene expression at multiple stages of trophoblast development (Paul et al., 2017). It also has effects on driving immune regulations. One of the pieces of evidence is from Wan's paper (Wan, 2014) that GATA3 controls the expression of **Myc** and **IL7Rα** whereas affecting the metabolism, proliferation and homeostasis of immune cells. From the results, they both were marked as significantly expressed in the down_regulated gene list.
+```{r evidence_check1, warning=FALSE, message=FALSE}
+"MYC" %in% down_regulated
+"IL7R" %in% down_regulated
+```
+
+* Another evidence would be the **PARP1** and **CCND1** genes, which showed up in both of the over-representation results and the original paper. In the study of the regulatory function of GATA3 and PARP1 to CCND1 (Shan et al., 2013), PARP1 was shown to be a transcription co-activator for GATA3, CCND1 was shown to be a downstream target for GATA3 in breast cancer cells as the GATA3 knockdown. Additionally, GATA3 was found cooperating with PARP1 to facilitate the G1/S transition through the regulation of the CCND1 gene. It supports the appearance of PARP1 in the up_regulated genes list and CCND1 in the down_regulated genes list. Also, it conforms to the top terms of *ribosome biogenesis* from the Go biological process and *Cell Cycle* from Reactome.
+```{r evidence_check2, warning=FALSE, message=FALSE}
+"PARP1" %in% up_regulated
+"CCND1" %in% down_regulated
+```
+
+
+# Additional Links:
+
+* The link of journal: 
+
+  - [A2 journal](https://github.com/bcb420-2022/Yuewei_Wang/wiki/Assignment-2)
+
+* More detailed result png images:
+
+  - [up regulated list](data/gProfiler_hsapiens_2022-03-10_22-47-19_up.png)
+  - [down regulated list](data/gProfiler_hsapiens_2022-03-10_22-54-00_down.png)
+  - [whole list](data/gProfiler_hsapiens_2022-03-10_23-17-57_all.png)
+
+---
+
+# References
+
+<div id="refs"></div>
