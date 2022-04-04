@@ -281,7 +281,7 @@ legend("topright", inset=c(-0.25,0),bty = "n", xpd=TRUE,
   
   + After the p-value correction by the Benjamini-Hochberg method, 5311 genes passed in the limma method, which has the 42.61% of the selected differentially expressed genes. From the chosen model in the edgeR method, 452 genes passed the correction. The percentage was 3.63%.
   
-```{r A2_edgeR1, warning=FALSE, message=FALSE, echo=FALSE, fig.align='center'}
+```{r A2_edgeR1, warning=FALSE, message=FALSE, fig.align='center'}
 # by cell type model
 expressionMatrix <- as.matrix(gata3_data)
 d = DGEList(counts=expressionMatrix, group=gata3_samples$cell_type)
@@ -335,7 +335,7 @@ df_edger$color[which(df_edger$logFC > 0 & df_edger$FDR < 0.05)] <- "green"
 df_edger$color[which(df_edger$logFC< 0 & df_edger$FDR < 0.05)] <- "purple"
 plot(df_edger[,1:2], 
      col=df_edger$color, 
-     main = "Figure 6: GATA3 RNASeq Samples Volcano Plots Comparison by using QLF Method")
+     main = "Figure 6: Volcano Plots Comparison by using edgeR Method")
 legend("topright", 
        legend=c("up-regulated", "down-regulated", "neither"), 
        fill = c("purple","green", "grey"),
@@ -345,30 +345,32 @@ legend("topright",
 
 * The top hits from the edgeR results were used to generate the heat map in Figure 7. The graph presents clustering based on cell type. The clustered patterning is more clear compared to the initial heatmap.
 ```{r A2_sample_heatmap, message=FALSE, warning=FALSE, echo=FALSE, fig.align='center',fig.cap="Figure 7: Normalized GATA3 RNASeq Samples Heat Maps by using Complex Model in edgeR", , fig.show='hold'}
-qlf_top_hits <- rownames(qlf_output_hits$table)[output_sample_type_hits$P.Value<0.05]
-heatmap_matrix_qlf <- t(scale(t(gata3_data[which(rownames(gata3_data) %in% 
-                                                   qlf_top_hits),])))
-if(min(heatmap_matrix_qlf) == 0){
-  heatmap_col = colorRamp2(c( 0, max(heatmap_matrix_qlf)),
-                           c( "white", "red"))
-} else {
-  heatmap_col = colorRamp2(c(min(heatmap_matrix_qlf), 0,
-                             max(heatmap_matrix_qlf)), 
-                           c("blue", "white", "red"))
-}
-edger_model_heatmap <- Heatmap(as.matrix(heatmap_matrix_qlf),
-                              cluster_rows = TRUE,
-                              cluster_columns = TRUE,
-                              show_row_dend = TRUE,
-                              show_column_dend = TRUE,
-                              col=heatmap_col,
-                              show_column_names = TRUE,
-                              show_row_names = FALSE,
-                              show_heatmap_legend = TRUE,
-                              column_title = "Samples (group by complex model)", 
-                              row_title = "Genes",
-                              name="edgeR")
-edger_model_heatmap
+# qlf_top_hits <- rownames(qlf_output_hits$table)[output_sample_type_hits$P.Value<0.05]
+# heatmap_matrix_qlf <- t(scale(t(gata3_data[which(rownames(gata3_data) %in% 
+#                                                    qlf_top_hits),])))
+# if(min(heatmap_matrix_qlf) == 0){
+#   heatmap_col = colorRamp2(c( 0, max(heatmap_matrix_qlf)),
+#                            c( "white", "red"))
+# } else {
+#   heatmap_col = colorRamp2(c(min(heatmap_matrix_qlf), 0,
+#                              max(heatmap_matrix_qlf)), 
+#                            c("blue", "white", "red"))
+# }
+# edger_model_heatmap <- Heatmap(as.matrix(heatmap_matrix_qlf),
+#                               cluster_rows = TRUE,
+#                               cluster_columns = TRUE,
+#                               show_row_dend = TRUE,
+#                               show_column_dend = TRUE,
+#                               col=heatmap_col,
+#                               show_column_names = TRUE,
+#                               show_row_names = FALSE,
+#                               show_heatmap_legend = TRUE,
+#                               column_title = "Samples (group by complex model)", 
+#                               row_title = "Genes",
+#                               name="edgeR")
+# edger_model_heatmap
+knitr::include_graphics("data/a2_heatmap.png")
+
 ```
 <br>
 
@@ -619,7 +621,7 @@ knitr::include_graphics("data/publication_ready.png")
 
 * The major rRNA nucleus cluster is one of the major themes in the network. The highest-ranked gene in this cluster is eIF4A.  The evidence I found is the correlation of eIF4A for trophoblast cells activities. It was reported to involve the restricted global protein synthesis in trophoblast cells by interacting with AMOT (Enrichment of angiomotin). Over AMOT expression in the placenta was associated with intrauterine growth restriction in both rats and humans [@basak_dey_banerjee_paul_maiti_ain_2020].
 
-* The evidence could provide the involvement of major rRNA nucleus clusters in the effect of trophoblast cells activities. 
+* The evidence could provide the involvement of eIF4A in the effect of trophoblast cells activities. It is the top-ranked gene in the major rRNA nucleus cluster, which indirectly supports the involvement of the cluster.
 <br>
 
 ---
@@ -657,8 +659,9 @@ if(length(gseaDirectories) == 1){
                         stringsAsFactors = FALSE,row.names=1)
 }
 ```
+<br>
 
-* Collect data from the enrichment results
+* Collect data from the enrichment results. Set the threshold for significant gene with DFR = 0.001.
 ```{r dark_matter2, message=FALSE, warning=FALSE}
 FDR_threshold <- 0.001
 all_sig_enr_genesets<- c(rownames(enrFile1)[which(enrFile1[,"FDR.q.val"]<=FDR_threshold)], rownames(enrFile2)[which(enrFile2[,"FDR.q.val"]<=FDR_threshold)])
@@ -690,7 +693,7 @@ draw.triple.venn( area1=length(A), area2=length(B), area3 = length(C),
 dev.off()
 ```
 
-```{r dark_matter_png, echo=FALSE, fig.cap="Figure Dark Matter", fig.align='center', fig.dim=c(200,200), fig.cap="Figure 9: Dark Matter Overlap Venn Diagram. The "}
+```{r dark_matter_png, echo=FALSE, fig.cap="Figure Dark Matter", fig.align='center', fig.cap="Figure 9: Dark Matter Overlap Venn Diagram. The "}
 knitr::include_graphics("data/dark_matter_overlaps.png")
 ```
 <br>
@@ -713,9 +716,9 @@ kable(ranked_gene_no_annotation[1:10,], format = 'html', caption = "Table 3.1: T
 
 * `r length(genes_no_annotation)/length(C)*100`% of genes were not found annotation, which is not a large portion and expected. Due to the normalization and mapping, not too much genes were not included in the latest version of gmt database.
 
-* The top gene RCN2 is shown to be associated with Reticulocalbin-2 protein which has GO annotation from GO_Central [Uniprot query for RCN2](https://www.uniprot.org/uniprot/Q14257). If we zoom in on the regulatory role of RCN2, it has been shown to regulate blood pressure and contribute to hypertension by affecting the endothelial NO synthases [@chang_yan_yan_zheng_liu_2019]. It might not have strong correlations with trophoblast cells than the genesets included in the results. 
+* The top gene RCN2 is shown to be associated with Reticulocalbin-2 protein which has GO annotation from GO_Central [Uniprot query for RCN2](https://www.uniprot.org/uniprot/Q14257). If we zoom in on the regulatory role of RCN2, it has been shown to regulate blood pressure and contribute to hypertension by affecting the endothelial NO synthases [@li_cechova_wang_isakson_le_shi_2019]. It might not have strong correlations with trophoblast cells than the genesets included in the results. 
 
-* The second gene MROH6 (Maestro Heat Like Repeat Family Member 6) has no annotation ([Uniprot query for MROH6](https://www.uniprot.org/uniprot/A6NGR9)), which conforms to the feature of this group (no annotation). It is associated with autosomal recessive non-syndromic intellectual disability and annotated with binding in GO [@mroh6_database]. 
+* The second gene MROH6 (Maestro Heat Like Repeat Family Member 6) has no annotation ([Uniprot query for MROH6](https://www.uniprot.org/uniprot/A6NGR9)), which conforms to the feature of this group (no annotation). It is associated with autosomal recessive non-syndromic intellectual disability and annotated with binding in GO [@malacards]. 
 
 <br>
 
