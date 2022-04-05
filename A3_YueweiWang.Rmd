@@ -32,6 +32,8 @@ if (!require("kableExtra", quietly = TRUE))
 if (! requireNamespace("RCurl", quietly = TRUE)) {
   BiocManager::install("RCurl")
 }
+if (!require("circlize", quietly = TRUE))
+  install.packages("circlize")
 if (!require("GSA", quietly = TRUE))
   install.packages("GSA")
 if (!require("VennDiagram")) {
@@ -173,7 +175,7 @@ current_heatmap <- Heatmap((heatmap_matrix),
                            column_title = "Samples", 
                            row_title = "Genes",
                            name = "normalized")
-current_heatmap
+knitr::include_graphics("data/a2_init_heatmap.png")
 ```
 
 ```{r A2_MDS_plot, message=FALSE, warning=FALSE, out.width=c('50%', '50%'),fig.align='center',fig.show='hold', fig.cap="Figure 3: GATA3 RNASeq Samples MDS Plots Comparison by using Two Models", echo=FALSE}
@@ -345,30 +347,7 @@ legend("topright",
 
 * The top hits from the edgeR results were used to generate the heat map in Figure 7. The graph presents clustering based on cell type. The clustered patterning is more clear compared to the initial heatmap.
 ```{r A2_sample_heatmap, message=FALSE, warning=FALSE, echo=FALSE, fig.align='center',fig.cap="Figure 7: Normalized GATA3 RNASeq Samples Heat Maps by using Complex Model in edgeR", , fig.show='hold'}
-# qlf_top_hits <- rownames(qlf_output_hits$table)[output_sample_type_hits$P.Value<0.05]
-# heatmap_matrix_qlf <- t(scale(t(gata3_data[which(rownames(gata3_data) %in% 
-#                                                    qlf_top_hits),])))
-# if(min(heatmap_matrix_qlf) == 0){
-#   heatmap_col = colorRamp2(c( 0, max(heatmap_matrix_qlf)),
-#                            c( "white", "red"))
-# } else {
-#   heatmap_col = colorRamp2(c(min(heatmap_matrix_qlf), 0,
-#                              max(heatmap_matrix_qlf)), 
-#                            c("blue", "white", "red"))
-# }
-# edger_model_heatmap <- Heatmap(as.matrix(heatmap_matrix_qlf),
-#                               cluster_rows = TRUE,
-#                               cluster_columns = TRUE,
-#                               show_row_dend = TRUE,
-#                               show_column_dend = TRUE,
-#                               col=heatmap_col,
-#                               show_column_names = TRUE,
-#                               show_row_names = FALSE,
-#                               show_heatmap_legend = TRUE,
-#                               column_title = "Samples (group by complex model)", 
-#                               row_title = "Genes",
-#                               name="edgeR")
-# edger_model_heatmap
+
 knitr::include_graphics("data/a2_heatmap.png")
 
 ```
@@ -506,6 +485,7 @@ download.file(paste(gmt_url,gmt_file,sep=""), destfile=dest)
 * The GSEA was performed externally by using the above files and configurations in the GSEA software.
 
 * The initial html of the GSEA results: [index.html](data/gsea_results/index.html)
+* The screenshots of top 10 hits genesetsL [na_pos](data/gsea_results/gsea_na_pos_top10.png) [na_neg](data/gsea_results/gsea_na_neg_top10.png)
 <br>
 
 ### 3.2 Short Summary of the Results:
@@ -693,7 +673,7 @@ draw.triple.venn( area1=length(A), area2=length(B), area3 = length(C),
 dev.off()
 ```
 
-```{r dark_matter_png, echo=FALSE, fig.cap="Figure Dark Matter", fig.align='center', fig.cap="Figure 9: Dark Matter Overlap Venn Diagram. The "}
+```{r dark_matter_png, echo=FALSE, fig.cap="Figure Dark Matter", fig.cap="Figure 9: Dark Matter Overlap Venn Diagram.", fig.align='center', out.width="80%"}
 knitr::include_graphics("data/dark_matter_overlaps.png")
 ```
 <br>
@@ -778,7 +758,7 @@ kable(ranked_genes_annotated_enr_non_sig[1:10,], format = 'html', caption = "Tab
 
 <br>
   
-```{r heatmap_2, warning=FALSE, message=FALSE, echo=FALSE,  fig.cap="Figure 11: Heatmap for genes with annotation but not in enrichment results", fig.align='center'}
+```{r heatmap_2, warning=FALSE, message=FALSE,  fig.cap="Figure 11: Heatmap for genes with annotation but not in enrichment results", fig.align='center'}
 genes_annotated_enr_non_sig_matrix <-  t(scale(t(expression[rownames(expression) %in% ranked_genes_annotated_enr_non_sig[,1],])))
 if(min(genes_annotated_enr_non_sig_matrix) == 0){
   heatmap_col = colorRamp2(c( 0, max(genes_annotated_enr_non_sig_matrix)),
